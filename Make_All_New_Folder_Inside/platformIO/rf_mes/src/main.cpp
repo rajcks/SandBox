@@ -1,7 +1,7 @@
 #include <SPI.h>
 
 // ----------------- RF Meter Click config -----------------
-const int PIN_CS      = 53;     // CS from Click -> Mega 53 (or change to your pin)
+const int PIN_CS      = 10;     // CS from Click -> Mega 53 (or change to your pin)
 const float RFMETER_VREF       = 2.5f;    // AP7331 reference on the Click
 const float RFMETER_ADC_RES    = 4096.0f; // 12-bit ADC
 const uint16_t RFMETER_FILTER_USEFULL_DATA = 0x1FFF; // keep 13 LSBs, then >>1
