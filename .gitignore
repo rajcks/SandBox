@@ -1,0 +1,18 @@
+# Virtual environments
+.venv/
+
+# Python cache/compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / Editor files
+.vscode/
+.idea/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# git
+.git

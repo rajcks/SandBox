@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ECG Waveform Panel</title>
+  <style>
+    body {
+      background: #03050A;
+      color: #DCDDDF;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0; padding: 20px;
+    }
+    .panel {
+      max-width: 600px;
+      margin: auto;
+      background: #0C0D12;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .wave-container {
+      position: relative;
+      height: 150px;
+      background: #03050A;
+      border: 1px solid #4E525E;
+      overflow: hidden;
+      border-radius: 4px;
+    }
+    .wave {
+      position: absolute;
+      left: 100%;
+      height: 100%;
+      width: 200%;
+      stroke: #13A61C;
+      stroke-width: 2;
+      fill: none;
+      animation: move-wave 2s linear infinite;
+    }
+    @keyframes move-wave {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+    .hr-value {
+      font-size: 48px;
+      text-align: center;
+      margin: 15px 0;
+    }
+    .buttons {
+      text-align: center;
+    }
+    .buttons button {
+      background: #19D823;
+      color: #03050A;
+      border: none;
+      margin: 0 8px;
+      padding: 12px 20px;
+      font-size: 16px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .buttons button.disconnect { background: #797C88; }
+    .buttons button.stop { background: #DCDDDF; color: #03050A; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>ECG Waveform Panel</h2>
+    <div class="wave-container">
+      <svg class="wave" viewBox="0 0 200 100">
+        <polyline points="0,50 25,50 27,30 30,70 35,50 40,50 65,50 67,20 70,80 75,50 100,50
+                          125,50 127,30 130,70 135,50 140,50 165,50 167,20 170,80 175,50 200,50" />
+      </svg>
+    </div>
+    <div class="hr-value" id="hr">-- BPM</div>
+    <div class="buttons">
+      <button class="connect" onclick="sendCmd('connect')">Connect</button>
+      <button class="disconnect" onclick="sendCmd('disconnect')">Disconnect</button>
+      <button class="start" onclick="sendCmd('start')">Start</button>
+      <button class="stop" onclick="sendCmd('stop')">Stop</button>
+    </div>
+  </div>
+
+  <script>
+    function sendCmd(cmd) { eel.on_cmd(cmd)(); }
+
+    eel.expose(updateHR);
+    function updateHR(bpm) {
+      document.getElementById('hr').innerText = bpm + ' BPM';
+      // Optionally animate waveform speed or color here
+    }
+  </script>
+
+  <script src="/eel.js"></script>
+</body>
+</html>
