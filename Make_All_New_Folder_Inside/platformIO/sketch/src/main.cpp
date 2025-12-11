@@ -29,7 +29,7 @@ const int Relay3 = 6;                 // pin 4 : control of relay3 for input of 
 const int Relay2 = 5;                 // pin 5 : control of relay2 for power supply depletion with 1kohm
 const int Relay1 = 3;                 // pin 6 : control of relay1 for main power supply ON OFF with 3.3v from PPK2
 const int speakerOut = 4;             // pin 8  : output pin to speaker to generate audio tone
-const int Busy_In = 8;                // pin 8 : output from sensor - busy line
+const int Magnet = 8;                // pin 8 : output from sensor - busy line // magnet
 const int Alarm_In = 9;               // pin 9 : output from sensor - alarm line
 const int GWBusy_Out = 10;            // pin 10 : input from sensor - GW Busy line
 unsigned int InOutState = 0;
@@ -109,7 +109,7 @@ void setup() {
   digitalWrite(Relay2, HIGH);         // startup with line open (no depletion)
   pinMode(Relay1, OUTPUT);            // use for vcc main line power on/off (command 16,17)
   digitalWrite(Relay1, LOW);         // startup with line open (vcc not provided to target PCBA)
-  pinMode(Busy_In, INPUT);            // input reading from sensor into arduino (commands 6)
+  pinMode(Magnet, OUTPUT);            // input reading from sensor into arduino (commands 6)
   pinMode(Alarm_In, INPUT);           // input reading from sensor into arduino (commands 7)
   pinMode(GWBusy_Out, OUTPUT);        // use for signaling GW busy to sensor  (commands 4,5)
   digitalWrite(GWBusy_Out, LOW);      // startup with line OFF
@@ -176,12 +176,13 @@ void loop() {
         Serial.println("GWBusy ON");
         InOutState = InOutState | 0b000100;
         break;
-      case 6:   // read
-        value = digitalRead(Busy_In);
-        if (0 == value)
-          Serial.println("Busy OFF");
-        else
-          Serial.println("Busy ON");
+      case 6:   // write
+        digitalWrite(Magnet, LOW);
+        Serial.println("Magnet OFF");
+        break;
+      case 10:   // write
+        digitalWrite(Magnet, HIGH);
+        Serial.println("Magnet ON");
         break;
       case 7:   // read
         value = digitalRead(Alarm_In);
@@ -516,13 +517,6 @@ float readADC_FFT() {
     buf[i] = s;
     t_us[i] = ts;
   }
-
-  // actual sampling rate (optional debug)
-  uint32_t total_us = (t_us[N-1] >= t_us[0]) ? (t_us[N-1] - t_us[0])
-                    : (uint32_t)((uint64_t)t_us[N-1] + (uint64_t)(UINT32_MAX - t_us[0]) + 1ULL);
-  float actualFs = 0.0f;
-  if (total_us > 0) actualFs = (float)(N - 1) * 1e6f / (float)total_us;
-  // Serial.print("actualFs="); Serial.println(actualFs);  // enable for debug
 
   // find midpoint
   uint16_t minv = 0xFFFF, maxv = 0;
