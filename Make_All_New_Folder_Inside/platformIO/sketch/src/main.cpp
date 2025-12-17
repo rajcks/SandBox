@@ -4,6 +4,7 @@
 #include <Wire.h>
 #include <math.h>
 #include "Adafruit_TCS34725.h"
+#include <ArduinoFFT.h>
 
 // code for target board : Arduino Zero
 // project : BiDiLTE test bench
@@ -73,6 +74,10 @@ const uint32_t SAMPLER_11 = 77000;   // 1104 Hz
 // Tunable params for measured frequency (Hz):
 const uint32_t FFT_FS = 10000UL;      // sample rate for capture (10 kS/s)
 const uint16_t FFT_N = 2048;          // number of samples to capture (power of 2 recommended)
+static float vReal[FFT_N];
+static float vImag[FFT_N];
+
+ArduinoFFT<float> FFT(vReal, vImag, FFT_N, FFT_FS);
 
 /* ---------- Function prototypes (forward declarations) ---------- */
 void genSin(int sCount, int div);
@@ -88,7 +93,7 @@ int readADCAverage(uint8_t pin);
 float readVminus();
 float readVplus();
 int readADC_PEGEL();
-float readADC_FFT();
+float getFrequencyHz();
 
 // ---- Color helper prototypes ----
 void readColor(float &r, float &g, float &b);
@@ -352,7 +357,7 @@ void loop() {
         break;
       case 33:    // Read FFT (ADC on A2)
         Serial.print("freq = ");
-        Serial.println(readADC_FFT());
+        Serial.println(getFrequencyHz());
         break;
       case 34:    // Color detection
         if (isRed()) {
@@ -484,100 +489,43 @@ inline bool micros_less(uint32_t a, uint32_t b) {
   return (int32_t)(a - b) < 0;
 }
 
-float readADC_FFT() {
-  const uint32_t targetFs = FFT_FS;
-  const uint16_t N = FFT_N;
-  if (N < 16) return -1.0f;
-
-  // Allocate buffers on heap to avoid large .bss usage
-  uint16_t *buf = (uint16_t*) malloc((size_t)N * sizeof(uint16_t));
-  uint32_t *t_us = (uint32_t*)  malloc((size_t)N * sizeof(uint32_t));
-  if (!buf || !t_us) {
-    if (buf) free(buf);
-    if (t_us) free(t_us);
-    Serial.println("ERR: not enough RAM for capture; reduce FFT_N");
-    return -1.0f;
-  }
-
-  const uint32_t period_us = (uint32_t)(1000000UL / targetFs);
+float getFrequencyHz()
+{
+  const uint32_t period_us = 1000000UL / FFT_FS;
   uint32_t t0 = micros();
-  uint32_t deadline = t0 + (uint32_t)(N + 1000) * max(1u, period_us);
 
-  for (uint32_t i = 0; i < N; ++i) {
-    uint32_t target = t0 + i * period_us;
-    while ((int32_t)(micros() - target) < 0) {
-      if ((int32_t)(micros() - deadline) >= 0) { // timeout
-        free(buf); free(t_us);
-        return -1.0f;
-      }
-      // busy wait
-    }
-    uint32_t ts = micros();
-    uint16_t s = analogRead(A2);
-    buf[i] = s;
-    t_us[i] = ts;
+  // ---- Sample ADC ----
+  for (uint16_t i = 0; i < FFT_N; i++) {
+    while ((int32_t)(micros() - (t0 + i * period_us)) < 0);
+    vReal[i] = (float)analogRead(A5);
+    vImag[i] = 0.0f;
   }
 
-  // find midpoint
-  uint16_t minv = 0xFFFF, maxv = 0;
-  for (uint16_t i = 0; i < N; ++i) {
-    uint16_t v = buf[i];
-    if (v < minv) minv = v;
-    if (v > maxv) maxv = v;
-  }
-  float mid = (minv + maxv) * 0.5f;
+  // ---- Remove DC ----
+  float mean = 0.0f;
+  for (uint16_t i = 0; i < FFT_N; i++) mean += vReal[i];
+  mean /= FFT_N;
+  for (uint16_t i = 0; i < FFT_N; i++) vReal[i] -= mean;
 
-  // allocate crossings buffer (float to save RAM)
-  uint16_t maxCross = N / 2;
-  float *crossTimes = (float*) malloc((size_t)maxCross * sizeof(float));
-  if (!crossTimes) {
-    free(buf); free(t_us);
-    Serial.println("ERR: not enough RAM for crossings; reduce FFT_N");
-    return -1.0f;
-  }
+  // ---- FFT ----
+  FFT.windowing(FFTWindow::Hann, FFTDirection::Forward);
+  FFT.compute(FFTDirection::Forward);
+  FFT.complexToMagnitude();
 
-  // gather rising crossings using timestamp interpolation
-  uint16_t crossCount = 0;
-  double t0_s = (double)t_us[0] * 1e-6;
-  for (uint16_t i = 1; i < N; ++i) {
-    float s1 = (float)buf[i - 1];
-    float s2 = (float)buf[i];
-    if (s1 < mid && s2 >= mid) {
-      float denom = (s2 - s1);
-      float frac = 0.0f;
-      if (fabs(denom) > 1e-6f) frac = (mid - s1) / denom;
-      uint32_t t1 = t_us[i - 1];
-      uint32_t t2 = t_us[i];
-      uint32_t dt_us = (t2 >= t1) ? (t2 - t1) : (uint32_t)((uint64_t)t2 + (uint64_t)(UINT32_MAX - t1) + 1ULL);
-      double t_cross_s = ((double)t1 + (double)frac * (double)dt_us) * 1e-6;
-      float t_rel = (float)(t_cross_s - t0_s); // seconds relative to start
-      if (crossCount < maxCross) crossTimes[crossCount++] = t_rel;
+  // ---- Find peak bin ----
+  uint16_t peakBin = 1;
+  float peakMag = vReal[1];
+
+  for (uint16_t i = 2; i < FFT_N / 2; i++) {
+    if (vReal[i] > peakMag) {
+      peakMag = vReal[i];
+      peakBin = i;
     }
   }
 
-  float result = -1.0f;
-  if (crossCount >= 2) {
-    double sumPeriods = 0.0;
-    int validPeriods = 0;
-    const double MIN_PERIOD = 1.0 / 2000.0; // 0.5 ms
-    const double MAX_PERIOD = 1.0;          // 1 s
-    for (int k = 1; k < crossCount; ++k) {
-      double p = (double)crossTimes[k] - (double)crossTimes[k - 1];
-      if (p > MIN_PERIOD && p < MAX_PERIOD) {
-        sumPeriods += p;
-        ++validPeriods;
-      }
-    }
-    if (validPeriods > 0) {
-      double meanPeriod = sumPeriods / validPeriods;
-      result = (float)(1.0 / meanPeriod);
-    }
-  }
-
-  free(buf);
-  free(t_us);
-  free(crossTimes);
-  return result;
+  // ---- Convert to frequency (INT) ----
+  float frequencyHz = ((float)peakBin * FFT_FS / FFT_N)/8.69;
+  return frequencyHz;
 }
 
 // -------------------- end frequency helper --------------------
