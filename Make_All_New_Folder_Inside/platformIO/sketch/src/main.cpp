@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <Arduino.h>
 #include <Wire.h>
+#include <SPI.h>
 #include <math.h>
 #include "Adafruit_TCS34725.h"
 #include <ArduinoFFT.h>
@@ -169,7 +170,12 @@ typedef enum {
   CMD_PEGEL_READ  = 32,
   CMD_FFT_READ    = 33,
   CMD_COLOR_DET   = 34,
-  CMD_RGB_READ    = 35
+  CMD_RGB_READ    = 35,
+
+  // RF Meter Click commands (added)
+  CMD_RFMETER_RAW     = 40,
+  CMD_RFMETER_VOLTAGE = 41,
+  CMD_RFMETER_DBM     = 42
 } Command_t;
 
 /* -------------------------------------------------------------------------- */
@@ -211,6 +217,26 @@ static float vImag[FFT_N];
 ArduinoFFT<float> FFT(vReal, vImag, FFT_N, FFT_FS);
 
 /* -------------------------------------------------------------------------- */
+/*                     RF Meter Click (SPI) - Added Section                     */
+/* -------------------------------------------------------------------------- */
+
+// ----------------- RF Meter Click config -----------------
+const int PIN_CS = 10;                         // CS from Click -> (duplication allowed)
+const float RFMETER_VREF = 2.5f;               // AP7331 reference on the Click
+const float RFMETER_ADC_RES = 4096.0f;         // 12-bit ADC
+const uint16_t RFMETER_FILTER_USEFULL_DATA = 0x1FFF; // keep 13 LSBs, then >>1
+
+// You must calibrate these for your setup (frequency, etc.)
+const float RFMETER_DEF_SLOPE     = -0.025f;   // V/dB (~22mV/dB, positive)
+const float RFMETER_DEF_INTERCEPT = 20.0f;     // example offset in dBm
+
+// Limits used in original driver (approx, tweak if needed)
+const float RFMETER_DEF_LIMIT_HIGH = 2.0f;     // V
+const float RFMETER_DEF_LIMIT_LOW  = 0.5f;     // V
+
+SPISettings rfSpiSettings(250000, MSBFIRST, SPI_MODE0);
+
+/* -------------------------------------------------------------------------- */
 /*                      Function prototypes (forward declarations)             */
 /* -------------------------------------------------------------------------- */
 
@@ -236,6 +262,12 @@ void readColor(float &r, float &g, float &b);
 bool isRed();
 bool isGreen();
 bool isBlue();
+
+// RF Meter functions
+uint16_t rfmeter_read_data();
+uint16_t rfmeter_get_raw_data();
+float rfmeter_get_voltage();
+float rfmeter_get_signal_strength(float slope, float intercept);
 
 /* -------------------------------------------------------------------------- */
 /*                           Professional Pin Init (function)                  */
@@ -278,6 +310,10 @@ static void initPinsAndDefaults()
   pinMode(A3, INPUT);
   pinMode(A4, INPUT);
   pinMode(A5, INPUT);
+
+  // RF Meter Click CS pin (duplication allowed; keep pin number as requested)
+  pinMode(PIN_CS, OUTPUT);
+  digitalWrite(PIN_CS, HIGH);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -288,6 +324,9 @@ void setup() {
   initPinsAndDefaults();
 
   Serial.begin(115200);               // setup UART commmunication to the computer (python program for commands)
+
+  // SPI for RF Meter Click (added)
+  SPI.begin();
 
   analogWriteResolution(10);          // set the Arduino DAC for 10 bits of resolution (max)
   analogReadResolution(12);           // set the Arduino ADC for 12 bits of resolution (max)
@@ -569,6 +608,32 @@ void loop() {
       }
       break;
 
+      // -------------------- RF Meter Click commands (added) --------------------
+      case CMD_RFMETER_RAW:
+      {
+        uint16_t raw = rfmeter_get_raw_data();
+        Serial.print("RF Raw: ");
+        Serial.println(raw);
+      }
+      break;
+
+      case CMD_RFMETER_VOLTAGE:
+      {
+        float vout = rfmeter_get_voltage();
+        Serial.print("RF Vout: ");
+        Serial.println(vout, 4);
+      }
+      break;
+
+      case CMD_RFMETER_DBM:
+      {
+        float dbm = rfmeter_get_signal_strength(RFMETER_DEF_SLOPE, RFMETER_DEF_INTERCEPT);
+        Serial.print("RF dBm: ");
+        Serial.println(dbm, 1);
+      }
+      break;
+      // -----------------------------------------------------------------------
+
       default:                // always return unknowed command from computer (help for debug)
         Serial.println("Unknown");
         break;
@@ -580,8 +645,6 @@ void loop() {
 /*                          Sine Wave + Timer Functions                        */
 /* -------------------------------------------------------------------------- */
 
-// This function generates a sine wave and stores it in the wavSamples array
-// The input argument is the number of points the sine wave is made up of
 void genSin(int sCount, int div) {
   const float pi2 = 6.283; //2 x pi
   float in;
@@ -594,9 +657,6 @@ void genSin(int sCount, int div) {
   }
 }
 
-// Configures the TC to generate output events at the sample frequency.
-// Configures the TC in Frequency Generation mode, with an event output once
-// each time the audio sample frequency period expires.
 void tcConfigure(uint32_t sampleRate)
 {
   // Enable GCLK for TCC2 and TC5 (timer counter input clock)
@@ -623,25 +683,25 @@ void tcConfigure(uint32_t sampleRate)
 }
 
 bool tcIsSyncing()
-{ // Function that is used to check if TC5 is done syncing; returns true when it is done syncing
+{
   return TC5->COUNT16.STATUS.reg & TC_STATUS_SYNCBUSY;
 }
 
 void tcStartCounter()
-{ // This function enables TC5 and waits for it to be ready
+{
   TC5->COUNT16.CTRLA.reg |= TC_CTRLA_ENABLE;      // Set the CTRLA register
   while (tcIsSyncing());                          // Wait until snyc'd
 }
 
 void tcReset()
-{ // Reset TC5
+{
   TC5->COUNT16.CTRLA.reg = TC_CTRLA_SWRST;
   while (tcIsSyncing());
   while (TC5->COUNT16.CTRLA.bit.SWRST);
 }
 
 void tcDisable()
-{ // Disable TC5
+{
   TC5->COUNT16.CTRLA.reg &= ~TC_CTRLA_ENABLE;
   while (tcIsSyncing());
 }
@@ -650,7 +710,6 @@ void TC5_Handler(void)
 {
   analogWrite(A0, wavSamples[RT.sIndex]);
   TC5->COUNT16.INTFLAG.bit.MC0 = 1;
-
   if (++RT.sIndex >= SAMPLECOUNT)
   {
     RT.sIndex = 0;
@@ -658,7 +717,6 @@ void TC5_Handler(void)
     tcReset();
     tcConfigure(RT.sampleRate); // setup the timer counter based off of the user entered sample rate
   }
-
   tcStartCounter();            // start timer, once timer is done interrupt will occur and DAC value will be updated
 }
 
@@ -672,25 +730,20 @@ float readVoltage(uint8_t pin) {
   return voltage;
 }
 
-// --------- ADC helpers ---------
 int readADCAverage(uint8_t pin) {
   long sum = 0;
   for (int i = 0; i < 10; i++) {
     sum += analogRead(pin);
   }
-  // SerialUSB.println((int)(sum / 10));
   return (int)(sum / 10);
 }
 
-// Named channels (change pins to match your wiring as needed)
 float readVminus()     { return readVoltage(A3); }
 float readVplus()      { return readVoltage(A5); }
 int readADC_PEGEL()    { return readADCAverage(A1); }
 
 // -------------------- Frequency-capture helper --------------------
-// Call readADC_FFT() to block, capture and return measured frequency (Hz).
 inline bool micros_less(uint32_t a, uint32_t b) {
-  // return true if a < b considering wrap-around
   return (int32_t)(a - b) < 0;
 }
 
@@ -733,8 +786,6 @@ float getFrequencyHz()
   return frequencyHz;
 }
 
-// -------------------- end frequency helper --------------------
-
 /* -------------------------------------------------------------------------- */
 /*                                 Color Helpers                               */
 /* -------------------------------------------------------------------------- */
@@ -754,5 +805,67 @@ void readColor(float &r, float &g, float &b) {
 bool isRed()   { float r, g, b; readColor(r, g, b); return (r > g && r > b); }
 bool isGreen() { float r, g, b; readColor(r, g, b); return (g > r && g > b); }
 bool isBlue()  { float r, g, b; readColor(r, g, b); return (b > r && b > g); }
+
+/* --------------------------------------------------------------------------- */
+/*                                 RF Frequency Meter                          */
+/* --------------------------------------------------------------------------- */
+
+// ----------------- Low-level read (Arduino version) -----------------
+uint16_t rfmeter_read_data()
+{
+  uint8_t rx_buf[2];
+
+  SPI.beginTransaction(rfSpiSettings);
+  digitalWrite(PIN_CS, LOW);
+
+  // Read 2 bytes by clocking out dummy 0x00
+  rx_buf[0] = SPI.transfer(0x00);
+  rx_buf[1] = SPI.transfer(0x00);
+
+  digitalWrite(PIN_CS, HIGH);
+  SPI.endTransaction();
+
+  uint16_t result = ((uint16_t)rx_buf[0] << 8) | rx_buf[1];
+  return result;
+}
+
+// ----------------- Same functions as MikroE driver -----------------
+uint16_t rfmeter_get_raw_data()
+{
+  uint16_t result = rfmeter_read_data();
+  result &= RFMETER_FILTER_USEFULL_DATA; // 0x1FFF
+  result >>= 1;                          // align 12 bits (0..4095)
+  return result;
+}
+
+float rfmeter_get_voltage()
+{
+  uint16_t reading = rfmeter_get_raw_data();
+  float v = (float)reading;
+  v *= RFMETER_VREF;
+  v /= RFMETER_ADC_RES;   // /4095
+  return v;
+}
+
+float rfmeter_get_signal_strength(float slope, float intercept)
+{
+  float voltage = rfmeter_get_voltage();
+  float result;
+
+  if (voltage > RFMETER_DEF_LIMIT_HIGH)
+  {
+    result = (RFMETER_DEF_LIMIT_HIGH / slope) + intercept;
+  }
+  else if (voltage < RFMETER_DEF_LIMIT_LOW)
+  {
+    result = (RFMETER_DEF_LIMIT_LOW / slope) + intercept;
+  }
+  else
+  {
+    result = (voltage / slope) + intercept;
+  }
+
+  return result;
+}
 
 // End of file
