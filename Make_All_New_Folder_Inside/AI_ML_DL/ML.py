@@ -1,3 +1,9 @@
+# Train:
+#   python ML.py --train --data data --model sound_classifier_ML.joblib
+#
+# Predict:
+#   python ML.py --predict path\to\new.wav --data data --model sound_classifier_ML.joblib --ignore_threshold 0.85
+
 from pathlib import Path
 import numpy as np
 import librosa
