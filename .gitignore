@@ -16,3 +16,9 @@ __pycache__/
 
 # git
 .git
+
+# data files
+data/
+
+# model files
+Models/
