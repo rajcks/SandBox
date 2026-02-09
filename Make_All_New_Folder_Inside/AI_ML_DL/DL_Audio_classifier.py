@@ -80,7 +80,7 @@ class AudioClassifier:
 
     # ---------- model ----------
     def build_model(self, input_shape):
-        self.model = tf.Sequential()
+        self.model = tf.keras.Sequential()
         self.model.add(tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=input_shape))
         self.model.add(tf.keras.layers.Conv2D(32, (3, 3), activation='relu'))
         self.model.add(tf.keras.layers.Flatten())
@@ -118,8 +118,8 @@ class AudioClassifier:
         print(f"Loaded model from {model_path}")
 
 
-    # ---------- predict one file ----------
-    def predict_one_file(self, filename, threshold=0.99):
+    # ---------- predict file ----------
+    def predict_file(self, filename, threshold=0.99):
         filepath = os.path.join(self.Input_dir, filename)
 
         wav = self.load_audio_tf(tf.constant(filepath))
