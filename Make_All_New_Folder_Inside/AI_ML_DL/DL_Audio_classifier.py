@@ -4,6 +4,7 @@ import librosa
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, Dense, Flatten
+from tensorflow.keras.optimizers import Adam
 
 class AudioClassifier:
     def __init__(self, base_dir, target_sr=16000, clip_seconds=3, frame_length=320, frame_step=32):
@@ -16,9 +17,9 @@ class AudioClassifier:
         self.frame_length = frame_length
         self.frame_step = frame_step
 
-        self.pos_glob = os.path.join(self.base_dir, "data/z-by-hp-unlocked-challenge-3-signal-processing/Parsed_Capuchinbird_Clips", "*.wav")
-        self.neg_glob = os.path.join(self.base_dir, "data/z-by-hp-unlocked-challenge-3-signal-processing/Parsed_Not_Capuchinbird_Clips", "*.wav")
-        self.forest_dir = os.path.join(self.base_dir, "data/z-by-hp-unlocked-challenge-3-signal-processing", "Forest Recordings")  # adjust if different
+        self.pos_glob = os.path.join(self.base_dir, "data/good", "*.wav")
+        self.neg_glob = os.path.join(self.base_dir, "data/bad", "*.wav")
+        self.Input_dir = os.path.join(self.base_dir, "data/Input_Data")  # adjust if different
 
         self.model_path = os.path.join(self.base_dir, "Models", "audio_classifier_model.keras")
 
@@ -122,7 +123,7 @@ class AudioClassifier:
 
     # ---------- predict one file ----------
     def predict_one_file(self, filename, threshold=0.99):
-        filepath = os.path.join(self.forest_dir, filename)
+        filepath = os.path.join(self.Input_dir, filename)
 
         wav = self.load_audio_tf(tf.constant(filepath))
         slices = tf.keras.utils.timeseries_dataset_from_array(
@@ -144,10 +145,10 @@ if __name__ == "__main__":
     clf = AudioClassifier(BASE_DIR)
     clf.train(epochs=4)
     # clf.load_model("audio_classifier_model.keras") # Uncomment if you want to load a pre-trained model instead of training
-    file = "recording_49.mp3"
+    file = "your.wav"  # Replace with your actual file name in the Input_dir
     probs, preds = clf.predict_one_file(file, threshold=0.99)
 
     print("File:", file)
     print("Probabilities:", probs)
     print("Predictions:", preds)
-    print("Bird detected:", bool(preds.sum() > 0))
+    print("OutPut:", bool(preds.sum() > 0))
