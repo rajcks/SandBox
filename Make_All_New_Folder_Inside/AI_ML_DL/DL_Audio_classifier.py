@@ -2,9 +2,6 @@ import os
 import numpy as np
 import librosa
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, Dense, Flatten
-from tensorflow.keras.optimizers import Adam
 
 class AudioClassifier:
     def __init__(self, base_dir, target_sr=16000, clip_seconds=3, frame_length=320, frame_step=32):
@@ -83,11 +80,11 @@ class AudioClassifier:
 
     # ---------- model ----------
     def build_model(self, input_shape):
-        self.model = Sequential()
-        self.model.add(Conv2D(16, (3, 3), activation='relu', input_shape=input_shape))
-        self.model.add(Conv2D(32, (3, 3), activation='relu'))
-        self.model.add(Flatten())
-        self.model.add(Dense(1, activation='sigmoid'))
+        self.model = tf.Sequential()
+        self.model.add(tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=input_shape))
+        self.model.add(tf.keras.layers.Conv2D(32, (3, 3), activation='relu'))
+        self.model.add(tf.keras.layers.Flatten())
+        self.model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
 
         self.model.compile(
             optimizer='Adam',
