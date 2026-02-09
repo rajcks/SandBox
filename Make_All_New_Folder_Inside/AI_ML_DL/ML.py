@@ -1,3 +1,9 @@
+# DL.py
+# MFCC features → Logistic Regression
+# Folders:
+#   data/good/*.wav (or mp3/flac/ogg/m4a)
+#   data/bad/*.wav
+#
 # Train:
 #   python ML.py --train --data data --model sound_classifier_ML.joblib
 #
