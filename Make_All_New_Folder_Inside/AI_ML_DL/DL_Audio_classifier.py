@@ -4,7 +4,7 @@ import librosa
 import tensorflow as tf
 
 class AudioClassifier:
-    def __init__(self, base_dir, target_sr=16000, clip_seconds=3, frame_length=320, frame_step=32):
+    def __init__(self, base_dir, target_sr, clip_seconds, frame_length, frame_step):
         self.model = None
 
         self.base_dir = base_dir
@@ -139,11 +139,11 @@ class AudioClassifier:
 if __name__ == "__main__":
     BASE_DIR = "Make_ALL_New_Folder_Inside/AI_ML_DL"
 
-    clf = AudioClassifier(BASE_DIR)
+    clf = AudioClassifier(BASE_DIR, target_sr=8000, clip_seconds=1, frame_length=320, frame_step=32)
     clf.train(epochs=4)
     # clf.load_model("audio_classifier_model.keras") # Uncomment if you want to load a pre-trained model instead of training
     file = "your.wav"  # Replace with your actual file name in the Input_dir
-    probs, preds = clf.predict_one_file(file, threshold=0.99)
+    probs, preds = clf.predict_file(file, threshold=0.80)
 
     print("File:", file)
     print("Probabilities:", probs)
