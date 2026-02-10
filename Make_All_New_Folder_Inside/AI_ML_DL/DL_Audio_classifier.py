@@ -61,11 +61,8 @@ class AudioClassifier:
         pos_files = tf.io.gfile.glob(self.pos_glob)
         neg_files = tf.io.gfile.glob(self.neg_glob)
 
-        pos = tf.data.Dataset.from_tensor_slices(pos_files)
-        neg = tf.data.Dataset.from_tensor_slices(neg_files)
-
-        positives = tf.data.Dataset.zip((pos, tf.data.Dataset.from_tensor_slices(tf.ones(len(pos_files)))))
-        negatives = tf.data.Dataset.zip((neg, tf.data.Dataset.from_tensor_slices(tf.zeros(len(neg_files)))))
+        positives = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(pos_files), tf.data.Dataset.from_tensor_slices(tf.ones(len(pos_files)))))
+        negatives = tf.data.Dataset.zip((tf.data.Dataset.from_tensor_slices(neg_files), tf.data.Dataset.from_tensor_slices(tf.zeros(len(neg_files)))))
 
         data = positives.concatenate(negatives)
 
@@ -119,7 +116,7 @@ class AudioClassifier:
 
 
     # ---------- predict file ----------
-    def predict_file(self, filename, threshold=0.99):
+    def predict_file(self, filename, threshold):
         filepath = os.path.join(self.Input_dir, filename)
 
         wav = self.load_audio_tf(tf.constant(filepath))
@@ -130,7 +127,7 @@ class AudioClassifier:
             batch_size=1
         )
 
-        slices = slices.map(self.slice_to_spectrogram).batch(64)
+        slices = slices.map(self.slice_to_spectrogram).batch(16)
         probs = self.model.predict(slices).reshape(-1)
         preds = (probs > threshold).astype(int)
 
